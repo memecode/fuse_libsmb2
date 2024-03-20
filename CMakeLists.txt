@@ -9,3 +9,8 @@ target_link_libraries(fuse_libsmb2
         fuse3
     PUBLIC
         smb2)
+
+install(TARGETS fuse_libsmb2 EXPORT fuse_libsmb2
+        RUNTIME DESTINATION bin
+        ARCHIVE DESTINATION lib${LIB_SUFFIX}
+        LIBRARY DESTINATION lib${LIB_SUFFIX})
