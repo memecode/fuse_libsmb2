@@ -12,7 +12,7 @@
 
 #include <string>
 
-#include <fuse.h>
+#include <fuse3/fuse.h>
 
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
