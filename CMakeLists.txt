@@ -4,7 +4,7 @@ project(fuse_libssh2)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 set(ENABLE_EXAMPLES ON)
-add_subdirectory(../libsmb2 libsmb2)
+# add_subdirectory(../sahlberg-libsmb2 libsmb2)
 
 add_executable(fuse_libsmb2 main.cpp)
 target_link_libraries(fuse_libsmb2
