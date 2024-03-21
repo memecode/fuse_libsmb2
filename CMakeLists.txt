@@ -2,6 +2,7 @@
 cmake_minimum_required(VERSION 3.12)
 project(fuse_libssh2)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+set (CMAKE_CXX_STANDARD 20)
 
 get_filename_component(LIBSMB2_DIR ${CMAKE_CURRENT_LIST_DIR}/../sahlberg-libsmb2 ABSOLUTE)
 if (EXISTS ${LIBSMB2_DIR})
@@ -14,12 +15,22 @@ else()
 endif()
 
 add_executable(fuse_libsmb2 main.cpp)
+if(WIN32)
+	set(WIN_FSP "C:/Program Files (x86)/WinFsp")
+	set(FUSE_LIB "${WIN_FSP}/lib/winfsp-x64.lib")
+    target_include_directories(fuse_libsmb2
+        PUBLIC
+            "${WIN_FSP}/inc"
+            ${LIBSMB2_DIR}/include)
+else()
+	set(FUSE_LIB "fuse3")
+    target_include_directories(fuse_libsmb2 PUBLIC ${LIBSMB2_DIR}/include)
+endif()
 target_link_libraries(fuse_libsmb2
     PRIVATE
-        fuse3
+        ${FUSE_LIB}
     PUBLIC
         smb2)
-target_include_directories(fuse_libsmb2 PUBLIC ${LIBSMB2_DIR}/include)
 
 install(TARGETS fuse_libsmb2 EXPORT fuse_libsmb2
         RUNTIME DESTINATION bin
