@@ -89,7 +89,7 @@ static bool convert_stat(struct stat *out, smb2_stat_64 *in)
     out->st_atim.tv_sec = (time_t)in->smb2_atime;
     out->st_ctim.tv_sec = (time_t)in->smb2_ctime;
     
-    bool read_only = (in->smb2_attrib & SMB2_FILE_ATTRIBUTE_READONLY) != 0;
+    bool read_only = false; // (in->smb2_attrib & SMB2_FILE_ATTRIBUTE_READONLY) != 0;
 
     switch (in->smb2_type)
     {
@@ -199,7 +199,7 @@ static int wrapper_readdir( const char *path,
 
         if (ent->st.smb2_type == SMB2_TYPE_LINK)
         {
-            printf("link: %s = %x\n", ent->name, ent->st.smb2_attrib);
+            // printf("link: %s = %x\n", ent->name, ent->st.smb2_attrib);
             /*
             char buf[256];
             if (url->path && url->path[0])

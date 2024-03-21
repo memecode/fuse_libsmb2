@@ -19,6 +19,7 @@ target_link_libraries(fuse_libsmb2
         fuse3
     PUBLIC
         smb2)
+target_include_directories(fuse_libsmb2 PUBLIC ${LIBSMB2_DIR}/include)
 
 install(TARGETS fuse_libsmb2 EXPORT fuse_libsmb2
         RUNTIME DESTINATION bin
