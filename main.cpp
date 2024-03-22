@@ -44,6 +44,8 @@ std::string smb2_path;
 
 
 #ifdef _WINDOWS
+
+	#define DIR_CHAR			'\\'
 	
 	#define DEFAULT_USER_ID     0
 	#define DEFAULT_GROUP_ID    0
@@ -58,6 +60,8 @@ std::string smb2_path;
 
 #else
 	
+	#define DIR_CHAR			'/'
+
 	#define DEFAULT_USER_ID     1000
 	#define DEFAULT_GROUP_ID    1000
 
@@ -97,7 +101,7 @@ static std::string full_path(const char *path)
 static std::string code_ref( const char *file, int line, const char *func )
 {
     char s[256];
-    auto last = strrchr(file, '/');
+    auto last = strrchr(file, DIR_CHAR);
     snprintf(s, sizeof(s), "%s:%i:%s", last?last+1:file, line, func);
     return s;
 }
@@ -105,7 +109,8 @@ static std::string code_ref( const char *file, int line, const char *func )
 void log_printf(const char *type, const char *file, int line, const char *func, const char *fmt, ...)
 {
 	char s[512];
-	auto ch = snprintf(s, sizeof(s), "%s:%s:%i:%s ", type, file, line, func);
+    auto last = strrchr(file, DIR_CHAR);
+	auto ch = snprintf(s, sizeof(s), "%s:%s:%i:%s ", type, last?last+1:file, line, func);
 
 	va_list args;
 	va_start(args, fmt);
@@ -194,13 +199,13 @@ static int wrapper_getattr( const char *path,
         }
         else if( result )
         {
-            printf( "%s error: smb2_stat(%s) failed: %i, %s\n", CODE_REF, full.c_str(), result, smb2_get_error(smb2) );
+            LOG_ERR( "smb2_stat(%s) failed: %i, %s\n", full.c_str(), result, smb2_get_error(smb2) );
             return result;
         }
 
         if( !convert_stat( stbuf, &s ) )
         {
-            printf( "%s error: convert_stat(%s) failed\n", CODE_REF, full.c_str() );
+            LOG_ERR( "convert_stat(%s) failed\n", CODE_REF, full.c_str() );
             return -EINVAL;
         }
     }
