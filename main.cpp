@@ -11,6 +11,7 @@
 #include <assert.h>
 
 #include <string>
+#include <mutex>
 
 #include <fuse3/fuse.h>
 
@@ -21,10 +22,10 @@
 #define CODE_REF		code_ref(__FILE__, __LINE__, __func__).c_str()
 extern std::string code_ref( const char *file, int line, const char *func );
 
-#define LOG_DEBUG(...)	log_printf("DEBG", __FILE__, __LINE__, __func__, __VA_ARGS__)
-#define LOG_INFO(...)	log_printf("INFO", __FILE__, __LINE__, __func__, __VA_ARGS__)
-#define LOG_WARN(...)	log_printf("WARN", __FILE__, __LINE__, __func__, __VA_ARGS__)
-#define LOG_ERR(...)	log_printf("ERRR", __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_DEBUG(...)	log_printf("DBG", __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_INFO(...)	log_printf("INF", __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_WARN(...)	log_printf("WRN", __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_ERR(...)	log_printf("ERR", __FILE__, __LINE__, __func__, __VA_ARGS__)
 extern void log_printf(const char *type, const char *file, int line, const char *func, ...);
 
 /*
@@ -41,7 +42,7 @@ static struct options {
 
 static smb2_context *smb2 = nullptr;
 std::string smb2_path;
-
+std::mutex smb2_mutex;
 
 #ifdef _WINDOWS
 
@@ -52,11 +53,11 @@ std::string smb2_path;
 	
 	#define SMB_FILE			_S_IFREG
 	#define SMB_LINK			_S_IFREG
-	#define SMB_FILE_READ		_S_IREAD
-	#define SMB_FILE_WRITE		_S_IWRITE
+	#define SMB_FILE_READ		0444
+	#define SMB_FILE_WRITE		0200
 	#define SMB_DIR				_S_IFDIR
-	#define SMB_DIR_READ		_S_IREAD | _S_IEXEC | 0x4 /* IDK what this is... but windows needs it */
-	#define SMB_DIR_WRITE		_S_IWRITE
+	#define SMB_DIR_READ		0555
+	#define SMB_DIR_WRITE		0200
 
 #else
 	
@@ -123,6 +124,7 @@ void log_printf(const char *type, const char *file, int line, const char *func, 
 static void *wrapper_init(struct fuse_conn_info *conn,
             struct fuse_config *cfg)
 {
+	std::scoped_lock<std::mutex> lock(smb2_mutex);
     (void) conn;
     cfg->kernel_cache = 1;
     return NULL;
@@ -138,7 +140,7 @@ static bool convert_stat(struct fuse_stat *out, smb2_stat_64 *in)
 	#if 0
     bool read_only = (in->smb2_attrib & SMB2_FILE_ATTRIBUTE_READONLY) != 0;
 	#else
-	bool read_only = false;
+	bool read_only = true;
 	#endif
 
     switch (in->smb2_type)
@@ -170,9 +172,10 @@ static int wrapper_getattr( const char *path,
                             struct fuse_stat *stbuf,
                             struct fuse_file_info *fi )
 {
+	std::scoped_lock<std::mutex> lock(smb2_mutex);
     (void) fi;
 
-	LOG_DEBUG("path=%s", path);
+	// LOG_DEBUG("path=%s", path);
 
     auto full = full_path( path );
     memset(stbuf, 0, sizeof(struct stat));
@@ -195,11 +198,12 @@ static int wrapper_getattr( const char *path,
             stbuf->st_mode = SMB_FILE;
             stbuf->st_uid = DEFAULT_USER_ID;
             stbuf->st_gid = DEFAULT_GROUP_ID;
+            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), result, smb2_get_error(smb2) );
             return 0;
         }
         else if( result )
         {
-            LOG_ERR( "smb2_stat(%s) failed: %i, %s\n", full.c_str(), result, smb2_get_error(smb2) );
+            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), result, smb2_get_error(smb2) );
             return result;
         }
 
@@ -221,6 +225,7 @@ static int wrapper_readdir( const char *path,
                             struct fuse_file_info *fi,
                             enum fuse_readdir_flags flags )
 {
+	std::scoped_lock<std::mutex> lock(smb2_mutex);
     auto none = (fuse_fill_dir_flags)0;
     auto full = full_path( path );
 
@@ -254,7 +259,7 @@ static int wrapper_readdir( const char *path,
 
         if (ent->st.smb2_type == SMB2_TYPE_LINK)
         {
-            printf("link: %s = %x\n", ent->name, ent->st.smb2_attrib);
+            // printf("link: %s = %x\n", ent->name, ent->st.smb2_attrib);
             
             /*
             char buf[256];
@@ -278,22 +283,28 @@ static int wrapper_readdir( const char *path,
     return 0;
 }
 
+#ifndef O_ACCMODE
+#define O_ACCMODE (O_RDWR|O_WRONLY|O_RDONLY)
+#endif /* !O_ACCMODE */
+
 static int wrapper_open( const char *path,
                          struct fuse_file_info *fi)
 {
-	LOG_DEBUG("path=%s", path);
+	std::scoped_lock<std::mutex> lock(smb2_mutex);
+
+	if ((fi->flags & O_ACCMODE) != O_RDONLY)
+		return -EACCES;
 
     auto full = full_path( path );
-
-    smb2fh *fh = smb2_open(smb2, full.c_str(), fi->flags);
+    auto fh = smb2_open(smb2, full.c_str(), fi->flags);
     if (!fh)
     {
-        printf( "%s error: path=%s err=%s\n", CODE_REF, full.c_str(), smb2_get_error(smb2) );
+        LOG_ERR( "smb2_open failed path=%s err=%s", full.c_str(), smb2_get_error(smb2) );
         return -ENOENT;
     }
 
+	// LOG_DEBUG("full=%s fh=%p fi->flags=0x%x", full.c_str(), fh, fi->flags);
     fi->fh = (uint64_t)fh;
-    printf( "%s open(%s)=%p\n", CODE_REF, full.c_str(), fh );
     return 0;
 }
 
@@ -303,47 +314,49 @@ static int wrapper_read( const char *path,
                          fuse_off_t offset,
                          struct fuse_file_info *fi )
 {
-	LOG_DEBUG("path=%s", path);
+	std::scoped_lock<std::mutex> lock(smb2_mutex);
+	// LOG_DEBUG("path=%s", path);
 
     if( !fi )
     {
-        printf( "%s error: no file info\n", CODE_REF );
+        LOG_ERR( "no file info\n" );
         return -EINVAL;
     }
 
     auto fh = (smb2fh*)fi->fh;
     if( !fh )
     {
-        printf( "%s error: no file handle\n", CODE_REF );
+        LOG_ERR( "no file handle\n" );
         return -EINVAL;
     }
 
     if( offset != smb2_lseek( smb2, fh, offset, SEEK_SET, NULL ) )
     {
-        printf( "%s error: smb2_lseek failed\n", CODE_REF );
+        LOG_ERR( "smb2_lseek failed: %s", smb2_get_error(smb2) );
         return -EFAULT;
     }
 
-    printf( "%s smb2_read @ %i (%p, %zi)", CODE_REF, (int)offset, buf, size );
-    auto rd = smb2_read( smb2, fh, (uint8_t*) buf, size );
-    printf( " = %i\n", rd );
+    // printf( "%s smb2_read @ %i (%p, %zi)", CODE_REF, (int)offset, buf, size );
+    auto rd = smb2_read( smb2, fh, (uint8_t*) buf, (uint32_t) size );
+    // printf( " = %i\n", rd );
     return rd;
 }
 
 static int wrapper_release( const char *path, struct fuse_file_info *fi )
 {
-	LOG_DEBUG("path=%s", path);
+	std::scoped_lock<std::mutex> lock(smb2_mutex);
+	// LOG_DEBUG("path=%s", path);
 
     if( !fi )
     {
-        printf( "%s error: no file info\n", CODE_REF );
+        LOG_ERR( "no file info\n" );
         return -EINVAL;
     }
 
     auto fh = (smb2fh*)fi->fh;
     if( !fh )
     {
-        printf( "%s error: no file handle\n", CODE_REF );
+        LOG_ERR( "no file handle\n" );
         return -EINVAL;
     }
 
@@ -411,28 +424,51 @@ int main(int argc, char *argv[])
         auto url = smb2_parse_url(smb2, options.uri);
         if (url == NULL)
         {
-            fprintf( stderr, "Failed to parse url: %s\n", smb2_get_error(smb2) );
+            LOG_ERR( "Failed to parse url: %s", smb2_get_error(smb2) );
             return -1;
         }
 
-        if (url)
-            printf("url domain:%s user:%s server:%s share:%s path:%s\n",
+        if (!url)
+			LOG_ERR("No url");
+		else
+		{
+			if (url->user)
+			{
+				auto sep = strchr(url->user, ':');
+				if (sep)
+				{
+					// separate the username and password out...
+					smb2_set_password(smb2, sep + 1);
+
+					size_t userLen = sep - url->user;
+					char *user = (char*)malloc(userLen + 1);
+					if (user)
+					{
+						memcpy(user, url->user, userLen);
+						user[userLen] = 0;
+						free((void*)url->user);
+						url->user = user;
+					}
+				}
+			}
+
+            LOG_INFO( "url domain:%s user:%s server:%s share:%s path:%s\n",
                 url->domain,
                 url->user,
                 url->server,
                 url->share,
-                url->path);
+                url->path );
 
-        smb2_set_security_mode(smb2, SMB2_NEGOTIATE_SIGNING_ENABLED);
-		smb2_set_password(smb2, "_groon");
-        if (smb2_connect_share(smb2, url->server, url->share, url->user) < 0)
-        {
-            printf("smb2_connect_share failed. %s\n", smb2_get_error(smb2));
-            return -1;
-        }
+			smb2_set_security_mode( smb2, SMB2_NEGOTIATE_SIGNING_ENABLED );
+			if( smb2_connect_share(smb2, url->server, url->share, url->user) < 0 )
+			{
+				LOG_ERR( "smb2_connect_share failed. %s", smb2_get_error( smb2 ) );
+				return -1;
+			}
 
-        if (url->path)
-            smb2_path = url->path;
+			if (url->path)
+				smb2_path = url->path;
+		}
     }
 
     ret = fuse_main( args.argc, args.argv, &smb2_ops, NULL );
