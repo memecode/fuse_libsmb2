@@ -15,7 +15,11 @@
 #include <sstream>
 #include <memory>
 
+#ifdef HAIKU
+#include <fuse/fuse.h>
+#else
 #include <fuse3/fuse.h>
+#endif
 
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
@@ -143,12 +147,17 @@ void log_printf(const char *type, const char *file, int line, const char *func, 
     printf("%s\n", formatted.c_str());
 }
 
-static void *wrapper_init(struct fuse_conn_info *conn,
-            struct fuse_config *cfg)
+static void *wrapper_init(struct fuse_conn_info *conn
+    #ifndef HAIKU
+    , struct fuse_config *cfg
+    #endif
+    )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
     (void) conn;
+    #ifndef HAIKU
     cfg->kernel_cache = 1;
+    #endif
     return NULL;
 }
 
@@ -191,11 +200,16 @@ static bool convert_stat(fuse_stat *out, smb2_stat_64 *in)
 }
 
 static int wrapper_getattr( const char *path,
-                            fuse_stat *stbuf,
-                            struct fuse_file_info *fi )
+                            fuse_stat *stbuf
+                            #ifndef HAIKU
+                            , struct fuse_file_info *fi
+                            #endif
+                            )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
+    #ifndef HAIKU
     (void) fi;
+    #endif
 
     // LOG_DEBUG("path=%s", path);
 
@@ -243,11 +257,16 @@ static int wrapper_readdir( const char *path,
                             void *buf,
                             fuse_fill_dir_t filler,
                             fuse_off_t offset,
-                            struct fuse_file_info *fi,
-                            enum fuse_readdir_flags flags )
+                            struct fuse_file_info *fi
+                            #ifndef HAIKU
+                            , enum fuse_readdir_flags flags 
+                            #endif
+                            )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
+    #ifndef HAIKU
     auto none = (fuse_fill_dir_flags)0;
+    #endif
     auto full = full_path( path );
 
     LOG_DEBUG("path=%s", path);
@@ -272,8 +291,11 @@ static int wrapper_readdir( const char *path,
         filler(	buf,
                 ent->name,
                 &st,
-                0,
-                none);
+                0
+                #ifndef HAIKU
+                , none
+                #endif
+                );
 
         if (ent->st.smb2_type == SMB2_TYPE_LINK)
         {
