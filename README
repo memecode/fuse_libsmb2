@@ -9,10 +9,5 @@ Windows - using winfsp:  https://github.com/winfsp/winfsp
 
 Once built, you should be able to mount a folder using the syntax:
 
-    fuse_libsmb2 -f --uri://user:password@hostname/share /some/local/mountpoint
+    fuse_libsmb2 -f --uri=smb://[user[:password]@]hostname/share /some/local/mountpoint
 
-At the current time my local fork of libsmb2 has a bunch of windows fixes:
-
-    https://github.com/memecode/libsmb2
-
-Use the "all-fixes" branch for... you guessed it... all of my fixes merged together.
