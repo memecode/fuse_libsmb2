@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.12)
 project(fuse_libsmb2)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-set (CMAKE_CXX_STANDARD 14)
+set (CMAKE_CXX_STANDARD 20)
 
 if (NOT LIBSMB2_DIR)
     get_filename_component(LIBSMB2_DIR ${CMAKE_CURRENT_LIST_DIR}/../sahlberg-libsmb2 ABSOLUTE)
