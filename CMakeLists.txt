@@ -4,7 +4,9 @@ project(fuse_libsmb2)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 set (CMAKE_CXX_STANDARD 14)
 
-get_filename_component(LIBSMB2_DIR ${CMAKE_CURRENT_LIST_DIR}/../sahlberg-libsmb2 ABSOLUTE)
+if (NOT LIBSMB2_DIR)
+    get_filename_component(LIBSMB2_DIR ${CMAKE_CURRENT_LIST_DIR}/../sahlberg-libsmb2 ABSOLUTE)
+endif()
 if (EXISTS ${LIBSMB2_DIR})
     # this is mostly for desktop development. It's nice to have a proper cmake target for libsmb2
     # but don't fail if the folder doesn't exist.
