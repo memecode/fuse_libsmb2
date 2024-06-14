@@ -9,6 +9,10 @@
 #include <fcntl.h>
 #include <stddef.h>
 #include <assert.h>
+#include <time.h>
+#ifndef WINDOWS
+#include <poll.h>
+#endif
 
 #include <string>
 #include <mutex>
@@ -25,6 +29,7 @@
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 
+#define DEBUG_STATS		1
 #define CODE_REF		code_ref(__FILE__, __LINE__, __func__).c_str()
 static std::string code_ref( const char *file, int line, const char *func );
 
@@ -33,6 +38,22 @@ static std::string code_ref( const char *file, int line, const char *func );
 #define LOG_WARN(...)	log_printf("WRN", __FILE__, __LINE__, __func__, __VA_ARGS__)
 #define LOG_ERR(...)	log_printf("ERR", __FILE__, __LINE__, __func__, __VA_ARGS__)
 void log_printf(const char *type, const char *file, int line, const char *func, ...);
+
+#if DEBUG_STATS
+enum TFnType
+{
+    F_getattr,
+    F_open,
+    F_read,
+    F_release,
+    F_readdir,
+    F_init,
+
+    F_Max
+};
+int fnCounts[F_Max] = {};
+extern void fnDoStats();
+#endif
 
 /*
  * Command line options
@@ -49,43 +70,43 @@ static struct options {
 
 #ifdef _WINDOWS
 
-#define DIR_CHAR            '\\'
+    #define DIR_CHAR            '\\'
 
-#define DEFAULT_USER_ID     0
-#define DEFAULT_GROUP_ID    0
+    #define DEFAULT_USER_ID     0
+    #define DEFAULT_GROUP_ID    0
 
-#define SMB_FILE            _S_IFREG
-#define SMB_LINK            _S_IFREG
-#define SMB_FILE_READ       0444
-#define SMB_FILE_WRITE      0200
-#define SMB_DIR             _S_IFDIR
-#define SMB_DIR_READ        0555
-#define SMB_DIR_WRITE       0200
+    #define SMB_FILE            _S_IFREG
+    #define SMB_LINK            _S_IFREG
+    #define SMB_FILE_READ       0444
+    #define SMB_FILE_WRITE      0200
+    #define SMB_DIR             _S_IFDIR
+    #define SMB_DIR_READ        0555
+    #define SMB_DIR_WRITE       0200
 
 #else
     
-#define DIR_CHAR            '/'
+    #define DIR_CHAR            '/'
 
-#define DEFAULT_USER_ID     1000
-#define DEFAULT_GROUP_ID    1000
+    #define DEFAULT_USER_ID     1000
+    #define DEFAULT_GROUP_ID    1000
 
-// Files are 644
-#define SMB_FILE            S_IFREG
-#define SMB_LINK            S_IFLNK
-#define SMB_FILE_READ       S_IRUSR | \
-                            S_IRGRP | \
-                            S_IROTH
-#define SMB_FILE_WRITE      S_IWUSR
+    // Files are 644
+    #define SMB_FILE            S_IFREG
+    #define SMB_LINK            S_IFLNK
+    #define SMB_FILE_READ       S_IRUSR | \
+                                S_IRGRP | \
+                                S_IROTH
+    #define SMB_FILE_WRITE      S_IWUSR
 
-// Dir are 755
-#define SMB_DIR             S_IFDIR
-#define SMB_DIR_READ        S_IRUSR | S_IXUSR | \
-                            S_IRGRP | S_IXGRP | \
-                            S_IROTH | S_IXOTH
-#define SMB_DIR_WRITE       S_IWUSR
+    // Dir are 755
+    #define SMB_DIR             S_IFDIR
+    #define SMB_DIR_READ        S_IRUSR | S_IXUSR | \
+                                S_IRGRP | S_IXGRP | \
+                                S_IROTH | S_IXOTH
+    #define SMB_DIR_WRITE       S_IWUSR
 
-typedef struct stat fuse_stat;
-typedef off_t fuse_off_t;
+    typedef struct stat fuse_stat;
+    typedef off_t fuse_off_t;
 
 #endif
 
@@ -94,6 +115,8 @@ static std::string smb2_path;
 static std::mutex smb2_mutex;
 static int user_id = DEFAULT_USER_ID;
 static int group_id = DEFAULT_GROUP_ID;
+static t_socket cfd = -1;
+static int cevents = 0;
 
 #define OPTION(t, p)                           \
     { t, offsetof(struct options, p), 1 }
@@ -154,6 +177,9 @@ static void *wrapper_init(struct fuse_conn_info *conn
     )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
+    #if DEBUG_STATS
+    fnCounts[F_init]++;
+    #endif
     (void) conn;
     #ifndef HAIKU
     cfg->kernel_cache = 1;
@@ -199,6 +225,12 @@ static bool convert_stat(fuse_stat *out, smb2_stat_64 *in)
     return true;
 }
 
+struct smb2_cb_data
+{
+    bool finished = false;
+    int status = 0;
+};
+
 static int wrapper_getattr( const char *path,
                             fuse_stat *stbuf
                             #ifndef HAIKU
@@ -206,12 +238,13 @@ static int wrapper_getattr( const char *path,
                             #endif
                             )
 {
-    std::unique_lock<std::mutex> lock(smb2_mutex);
+    #if DEBUG_STATS
+    fnCounts[F_getattr]++;
+    fnDoStats();
+    #endif
     #ifndef HAIKU
     (void) fi;
     #endif
-
-    // LOG_DEBUG("path=%s", path);
 
     auto full = full_path( path );
     memset(stbuf, 0, sizeof(struct stat));
@@ -226,20 +259,74 @@ static int wrapper_getattr( const char *path,
     else if( path )
     {
         smb2_stat_64 s = {};
-        auto result = smb2_stat( smb2, full.c_str(), &s );
-        if( -EACCES == result )
+        smb2_cb_data data;
+
+        #if 1
+        {
+            std::unique_lock<std::mutex> lock(smb2_mutex);
+            smb2_stat_async(
+                smb2,
+                full.c_str(),
+                &s,
+                [](auto smb2, auto status, auto command_data, auto cb_data)
+                {
+                    auto data = (smb2_cb_data*)cb_data;
+                    data->finished = 1;
+                    data->status = status;
+                },
+                &data);
+        }
+
+        while (!data.finished)
+        {
+			#ifdef WINDOWS
+			WSAPOLLFD pfd;
+            pfd.fd = cfd;
+            pfd.events = cevents;
+			if (WSAPoll(&pfd, 1, 1000) < 0)
+			#else
+	        struct pollfd pfd;
+            pfd.fd = cfd;
+            pfd.events = cevents;
+            if (poll(&pfd, 1, 1000) < 0)
+			#endif
+            {
+                LOG_ERR("Poll failed");
+                return -EINVAL;
+            }
+            if (pfd.revents == 0)
+            {
+                continue;
+            }
+
+            std::unique_lock<std::mutex> lock(smb2_mutex);
+            if (smb2_service(smb2, pfd.revents) < 0)
+            {
+                LOG_ERR("smb2_service failed with : %s\n", smb2_get_error(smb2));
+                break;
+            }
+        }
+
+        #else
+        {
+            std::unique_lock<std::mutex> lock(smb2_mutex);
+            data.status = smb2_stat( smb2, full.c_str(), &s );
+        }
+        #endif
+
+        if( -EACCES == data.status )
         {
             // For entries without permissions we create an empty stat record rather than ENOENT
             stbuf->st_mode = SMB_FILE;
             stbuf->st_uid = user_id;
             stbuf->st_gid = group_id;
-            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), result, smb2_get_error(smb2) );
+            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), data.status, smb2_get_error(smb2) );
             return 0;
         }
-        else if( result )
+        else if( data.status )
         {
-            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), result, smb2_get_error(smb2) );
-            return result;
+            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), data.status, smb2_get_error(smb2) );
+            return data.status;
         }
 
         if( !convert_stat( stbuf, &s ) )
@@ -264,6 +351,11 @@ static int wrapper_readdir( const char *path,
                             )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
+    #if DEBUG_STATS
+    fnCounts[F_readdir]++;
+    fnDoStats();
+    #endif
+
     #ifndef HAIKU
     auto none = (fuse_fill_dir_flags)0;
     #endif
@@ -319,7 +411,7 @@ static int wrapper_readdir( const char *path,
     }	
 
     smb2_closedir(smb2, dir);
-
+    
     return 0;
 }
 
@@ -331,6 +423,10 @@ static int wrapper_open( const char *path,
                          struct fuse_file_info *fi)
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
+    #if DEBUG_STATS
+    fnCounts[F_open]++;
+    fnDoStats();
+    #endif
 
     if ((fi->flags & O_ACCMODE) != O_RDONLY)
         return -EACCES;
@@ -355,7 +451,10 @@ static int wrapper_read( const char *path,
                          struct fuse_file_info *fi )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
-    // LOG_DEBUG("path=%s", path);
+    #if DEBUG_STATS
+    fnCounts[F_read]++;
+    fnDoStats();
+    #endif
 
     if( !fi )
     {
@@ -382,7 +481,10 @@ static int wrapper_read( const char *path,
 static int wrapper_release( const char *path, struct fuse_file_info *fi )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
-    // LOG_DEBUG("path=%s", path);
+    #if DEBUG_STATS
+    fnCounts[F_release]++;
+	fnDoStats();
+    #endif
 
     if( !fi )
     {
@@ -399,6 +501,7 @@ static int wrapper_release( const char *path, struct fuse_file_info *fi )
 
     smb2_close( smb2, fh );
     fi->fh = 0;
+    
     return 0;
 }
 
@@ -410,6 +513,26 @@ static const struct fuse_operations smb2_ops = {
     .readdir	= wrapper_readdir,
     .init		= wrapper_init,
 };
+
+clock_t getClock()
+{
+    return clock() / (CLOCKS_PER_SEC / 1000);
+}
+
+#if DEBUG_STATS
+void fnDoStats()
+{
+    static clock_t ts = 0;
+    auto now = getClock();
+    if (now - ts >= 1000)
+    {
+        ts = now;
+        printf("stats: attr=%i, open=%i, read=%i, rel=%i, readdir=%i\n",
+            fnCounts[F_getattr], fnCounts[F_open], fnCounts[F_read], fnCounts[F_release], fnCounts[F_readdir]);
+        memset(fnCounts, 0, sizeof(fnCounts));
+    }
+}
+#endif
 
 static void show_help(const char *progname)
 {
@@ -464,6 +587,21 @@ int main(int argc, char *argv[])
     if( options.uri )
     {
         smb2 = smb2_init_context();
+        smb2_fd_event_callbacks(smb2,
+            [](struct smb2_context *smb2, t_socket fd, int cmd)
+            {
+                if (cmd == SMB2_ADD_FD) {
+                        cfd = fd;
+                }
+                if (cmd == SMB2_DEL_FD) {
+                        cfd = -1;
+                }
+            },
+            [](struct smb2_context *smb2, t_socket fd, int events)
+            {
+                cevents = events;
+            });
+
         auto url = smb2_parse_url(smb2, options.uri);
         if( nullptr == url )
         {
@@ -520,3 +658,4 @@ int main(int argc, char *argv[])
     fuse_opt_free_args( &args );
     return ret;
 }
+
