@@ -10,7 +10,11 @@ endif()
 if (EXISTS ${LIBSMB2_DIR})
     # this is mostly for desktop development. It's nice to have a proper cmake target for libsmb2
     # but don't fail if the folder doesn't exist.
-    add_subdirectory(${LIBSMB2_DIR} libsmb2)
+    if (TARGET smb2)
+        message(STATUS "libsmb2 seems to have been added already.")
+    else()
+        add_subdirectory(${LIBSMB2_DIR} libsmb2)
+    endif()
 else()
     # buildroot should have already built libsmb2 and fuse, the 2 dependencies of this code
     # these should be available in /usr/lib etc
