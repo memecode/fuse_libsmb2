@@ -81,11 +81,11 @@ static struct options {
 
     #define SMB_FILE            _S_IFREG
     #define SMB_LINK            _S_IFREG
-    #define SMB_FILE_READ       0444
-    #define SMB_FILE_WRITE      0200
+    #define SMB_FILE_READ       _S_IREAD|0xb6 // 0444
+    #define SMB_FILE_WRITE      _S_IWRITE|0xb6 // 0200
     #define SMB_DIR             _S_IFDIR
-    #define SMB_DIR_READ        0555
-    #define SMB_DIR_WRITE       0200
+    #define SMB_DIR_READ		_S_IREAD |0xff // 0555
+    #define SMB_DIR_WRITE       _S_IWRITE|0xff // 0200
 
 #else
     
@@ -131,6 +131,11 @@ static const struct fuse_opt option_spec[] = {
     OPTION("--help", show_help),
     FUSE_OPT_END
 };
+
+clock_t getClock()
+{
+    return clock() / (CLOCKS_PER_SEC / 1000);
+}
 
 int wrapper_readdir(const char *path,
                     void *buf,
@@ -407,26 +412,35 @@ static int wrapper_getattr( const char *path,
 		//
 		// This code path attempts to cache the results in bulk via a call to readdir, and then
 		// return getattr data from that cache.
-		wrapper_readdir(parentFolder(path).c_str(),
-						NULL,
-						[](auto buf, auto name, auto stbuf, auto off
-							#ifndef HAIKU
-							, auto flags
-							#endif
-						)
-						{
-							return 0;
-						},
-						0,
-						NULL
-						#ifndef HAIKU
-						, (fuse_readdir_flags)0
-						#endif
-						);
-
 		auto ent = get_cache(full);
 		if (!ent)
-			return -ENOENT;
+		{
+			wrapper_readdir(parentFolder(path).c_str(),
+							NULL,
+							[](auto buf, auto name, auto stbuf, auto off
+								#ifndef HAIKU
+								, auto flags
+								#endif
+							)
+							{
+								return 0;
+							},
+							0,
+							NULL
+							#ifndef HAIKU
+							, (fuse_readdir_flags)0
+							#endif
+							);
+
+			ent = get_cache(full);
+			if (!ent)
+				return -ENOENT;
+		}
+
+		if (!stricmp(path, "/dcim/camera/20200327_114239.jpg"))
+		{
+			int asd=0;
+		}
 
 		if( !convert_stat( stbuf, &ent->e.st ) )
 		{
@@ -512,61 +526,88 @@ int wrapper_readdir(const char *path,
     #endif
     auto full = full_path( path );
 
-    LOG_DEBUG("path=%s", path);
-
     if (!smb2)
     {
         printf( "%s error: no smb2.\n", CODE_REF );
         return -ENOENT;
     }
-    auto dir = smb2_opendir( smb2, full.c_str() );
-    if (dir == NULL)
-    {
-        printf("%s error: smb2_opendir failed. %s\n", CODE_REF, smb2_get_error(smb2));
-        return -ENOENT;
-    }
 
-    smb2dirent *ent = nullptr;
-    while ((ent = smb2_readdir(smb2, dir)))
-    {
-        fuse_stat st = {};
-        convert_stat(&st, &ent->st);
-        filler(	buf,
-                ent->name,
-                &st,
-                0
-                #ifndef HAIKU
-                , none
-                #endif
-                );
+	auto startTs = getClock();
+	int entries = 0;
+	#if CACHED_ATTR
+	auto it = entryMap.find(full);
+	if (it != entryMap.end())
+	{
+		for (auto &entry: it->second)
+		{
+			fuse_stat st = {};
+			convert_stat(&st, &entry.e.st);
+			filler(	buf,
+					entry.e.name,
+					&st,
+					0
+					#ifndef HAIKU
+					, none
+					#endif
+					);
+			entries++;
+		}
+	}
+	else
+	#endif
+	{
+		auto dir = smb2_opendir( smb2, full.c_str() );
+		if (dir == NULL)
+		{
+			printf("%s error: smb2_opendir(%s) failed. %s\n", CODE_REF, path, smb2_get_error(smb2));
+			return -ENOENT;
+		}
 
-		#if CACHED_ATTR
-		add_cache(full, ent);
-		#endif
+		smb2dirent *ent = nullptr;
+		while ((ent = smb2_readdir(smb2, dir)))
+		{
+			fuse_stat st = {};
+			convert_stat(&st, &ent->st);
+			filler(	buf,
+					ent->name,
+					&st,
+					0
+					#ifndef HAIKU
+					, none
+					#endif
+					);
 
-        if (ent->st.smb2_type == SMB2_TYPE_LINK)
-        {
-            // printf("link: %s = %x\n", ent->name, ent->st.smb2_attrib);
+			#if CACHED_ATTR
+			add_cache(full, ent);
+			#endif
+			entries++;
+
+			if (ent->st.smb2_type == SMB2_TYPE_LINK)
+			{
+				// printf("link: %s = %x\n", ent->name, ent->st.smb2_attrib);
             
-            /*
-            char buf[256];
-            if (url->path && url->path[0])
-            {
-                asprintf(&link, "%s/%s", url->path, ent->name);
-            }
-            else
-            {
-                asprintf(&link, "%s", ent->name);
-            }
-            smb2_readlink(smb2, link, buf, 256);
-            printf("    -> [%s]\n", buf);
-            free(link);
-            */
-        }
-    }	
+				/*
+				char buf[256];
+				if (url->path && url->path[0])
+				{
+					asprintf(&link, "%s/%s", url->path, ent->name);
+				}
+				else
+				{
+					asprintf(&link, "%s", ent->name);
+				}
+				smb2_readlink(smb2, link, buf, 256);
+				printf("    -> [%s]\n", buf);
+				free(link);
+				*/
+			}
+		}	
 
-    smb2_closedir(smb2, dir);
+		smb2_closedir(smb2, dir);
     
+	}
+
+	LOG_INFO("readdir:path=%s entries=%i time=%i", path, entries, (int)(getClock()-startTs));
     return 0;
 }
 
@@ -669,11 +710,6 @@ static const struct fuse_operations smb2_ops = {
     .init		= wrapper_init,
 };
 
-clock_t getClock()
-{
-    return clock() / (CLOCKS_PER_SEC / 1000);
-}
-
 #if DEBUG_STATS
 void fnDoStats()
 {
@@ -707,6 +743,14 @@ int main(int argc, char *argv[])
     WSADATA _data;
     WSAStartup(MAKEWORD(2, 2), &_data);
     #endif
+
+	#if 0 // checking stat mode flags...
+	struct _stat64 st;
+	auto res = _stat64("P:\\Photos", &st);
+	LOG_INFO("dir.flags=%x vs %x", st.st_mode, SMB_DIR | SMB_DIR_READ);
+	res = _stat64("P:\\Photos\\aboveallelse.jpg", &st);
+	LOG_INFO("file.flags=%x vs %x", st.st_mode, SMB_FILE | SMB_FILE_READ);
+	#endif
 
     /* Set defaults -- we have to use strdup so that
        fuse_opt_parse can free the defaults if other
