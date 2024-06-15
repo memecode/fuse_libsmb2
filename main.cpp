@@ -18,6 +18,7 @@
 #include <mutex>
 #include <sstream>
 #include <memory>
+#include <unordered_map>
 
 #ifdef HAIKU
 #include <fuse/fuse.h>
@@ -29,6 +30,8 @@
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 
+#define CACHED_ATTR		1
+#define ASYNC_LOCKING	1
 #define DEBUG_STATS		1
 #define CODE_REF		code_ref(__FILE__, __LINE__, __func__).c_str()
 static std::string code_ref( const char *file, int line, const char *func );
@@ -54,6 +57,12 @@ enum TFnType
 int fnCounts[F_Max] = {};
 extern void fnDoStats();
 #endif
+
+int wrapper_readdir( const char *path, void *buf, fuse_fill_dir_t filler, fuse_off_t offset, struct fuse_file_info *fi
+                    #ifndef HAIKU
+                    , enum fuse_readdir_flags flags 
+                    #endif
+                    );
 
 /*
  * Command line options
@@ -187,6 +196,93 @@ static void *wrapper_init(struct fuse_conn_info *conn
     return NULL;
 }
 
+std::string parentFolder(const std::string &path)
+{
+	for (int i = path.size() - 1; i > 0; i--)
+	{
+		auto ch = path[i];
+		if (ch == '/' || ch == '\\')
+			return path.substr(0, i);
+	}
+
+	return "/";
+}
+
+struct PathParts
+{
+	std::string folder, leaf;
+};
+
+PathParts splitPath(const std::string &path)
+{
+	PathParts p;
+	auto lastSep = path.rfind("/");
+	if (lastSep == std::string::npos)
+	{
+		p.folder = "/";
+		p.leaf = path;
+	}
+	else
+	{
+		p.folder = path.substr(0, lastSep);
+		p.leaf   = path.substr(lastSep+1);
+	}
+	return p;
+}
+
+#if CACHED_ATTR
+struct smb2entry
+{
+	std::string name;
+	smb2dirent e;
+
+	smb2entry(smb2dirent &entry)
+	{
+		name = entry.name;
+		e = entry;
+		e.name = name.c_str();
+	}
+
+	smb2entry(const smb2entry &s)
+	{
+		name = s.name;
+		e = s.e;
+		e.name = name.c_str();
+	}
+};
+typedef std::vector<smb2entry> TDirVec;
+std::unordered_map<std::string, TDirVec> entryMap;
+
+bool add_cache(std::string &folder, smb2dirent *ent)
+{
+	if (folder.empty())
+		folder = "/";
+
+	smb2entry e(*ent);
+	entryMap[folder].push_back(e);
+	
+	// LOG_INFO("add_cache(%s, %s)\n", folder.c_str(), e.e.name);
+
+	return true;
+}
+
+smb2entry *get_cache(std::string &path)
+{
+	auto p = splitPath(path);
+	auto it = entryMap.find(p.folder);
+	if (it == entryMap.end())
+		return NULL;
+
+	for (auto &entry: it->second)
+	{
+		if (entry.name == p.leaf)
+			return &entry;
+	}
+
+	return NULL;
+}
+#endif
+
 static bool convert_stat(fuse_stat *out, smb2_stat_64 *in)
 {
     out->st_size = (off_t)in->smb2_size;
@@ -231,6 +327,42 @@ struct smb2_cb_data
     int status = 0;
 };
 
+static int wait_loop(smb2_cb_data &data)
+{
+    while (!data.finished)
+    {
+		#ifdef WINDOWS
+		WSAPOLLFD pfd;
+        pfd.fd = cfd;
+        pfd.events = cevents;
+		if (WSAPoll(&pfd, 1, 1000) < 0)
+		#else
+	    struct pollfd pfd;
+        pfd.fd = cfd;
+        pfd.events = cevents;
+        if (poll(&pfd, 1, 1000) < 0)
+		#endif
+        {
+            LOG_ERR("Poll failed");
+            return -EINVAL;
+        }
+        if (pfd.revents == 0)
+        {
+            continue;
+        }
+
+        std::unique_lock<std::mutex> lock(smb2_mutex);
+		auto result = smb2_service(smb2, pfd.revents);
+        if (result < 0)
+        {
+            LOG_ERR("smb2_service failed with : %s\n", smb2_get_error(smb2));
+            return result;
+        }
+    }
+
+	return 0;
+}
+
 static int wrapper_getattr( const char *path,
                             fuse_stat *stbuf
                             #ifndef HAIKU
@@ -249,93 +381,107 @@ static int wrapper_getattr( const char *path,
     auto full = full_path( path );
     memset(stbuf, 0, sizeof(struct stat));
 
-    if( strcmp(path, "/") == 0 ) 
+    if (strcmp(path, "/") == 0)
     {
         stbuf->st_mode = SMB_DIR | SMB_DIR_READ | SMB_DIR_WRITE;
         stbuf->st_nlink = 2;
         stbuf->st_uid = user_id;
         stbuf->st_gid = group_id;
-    }
-    else if( path )
-    {
-        smb2_stat_64 s = {};
-        smb2_cb_data data;
+		return 0;
+    }    
+	if( !path )
+	{
+		return -ENOENT;
+	}
 
-        #if 1
-        {
-            std::unique_lock<std::mutex> lock(smb2_mutex);
-            smb2_stat_async(
-                smb2,
-                full.c_str(),
-                &s,
-                [](auto smb2, auto status, auto command_data, auto cb_data)
-                {
-                    auto data = (smb2_cb_data*)cb_data;
-                    data->finished = 1;
-                    data->status = status;
-                },
-                &data);
-        }
+	#if CACHED_ATTR
 
-        while (!data.finished)
-        {
-			#ifdef WINDOWS
-			WSAPOLLFD pfd;
-            pfd.fd = cfd;
-            pfd.events = cevents;
-			if (WSAPoll(&pfd, 1, 1000) < 0)
-			#else
-	        struct pollfd pfd;
-            pfd.fd = cfd;
-            pfd.events = cevents;
-            if (poll(&pfd, 1, 1000) < 0)
-			#endif
-            {
-                LOG_ERR("Poll failed");
-                return -EINVAL;
-            }
-            if (pfd.revents == 0)
-            {
-                continue;
-            }
+		// For large folders, the numbers of getattr calls is huge. If each of them requires a
+		// mostly synchronous client->server round trip it severaly limits the number of calls
+		// of this function. This will hang the client (e.g. windows explorer).
+		//
+		// This code path attempts to cache the results in bulk via a call to readdir, and then
+		// return getattr data from that cache.
+		wrapper_readdir(parentFolder(path).c_str(),
+						NULL,
+						[](auto buf, auto name, auto stbuf, auto off
+							#ifndef HAIKU
+							, auto flags
+							#endif
+						)
+						{
+							return 0;
+						},
+						0,
+						NULL
+						#ifndef HAIKU
+						, (fuse_readdir_flags)0
+						#endif
+						);
 
-            std::unique_lock<std::mutex> lock(smb2_mutex);
-            if (smb2_service(smb2, pfd.revents) < 0)
-            {
-                LOG_ERR("smb2_service failed with : %s\n", smb2_get_error(smb2));
-                break;
-            }
-        }
+		auto ent = get_cache(full);
+		if (!ent)
+			return -ENOENT;
 
-        #else
-        {
-            std::unique_lock<std::mutex> lock(smb2_mutex);
-            data.status = smb2_stat( smb2, full.c_str(), &s );
-        }
-        #endif
+		if( !convert_stat( stbuf, &ent->e.st ) )
+		{
+			LOG_ERR( "convert_stat(%s) failed\n", CODE_REF, full.c_str() );
+			return -EINVAL;
+		}
 
-        if( -EACCES == data.status )
-        {
-            // For entries without permissions we create an empty stat record rather than ENOENT
-            stbuf->st_mode = SMB_FILE;
-            stbuf->st_uid = user_id;
-            stbuf->st_gid = group_id;
-            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), data.status, smb2_get_error(smb2) );
-            return 0;
-        }
-        else if( data.status )
-        {
-            LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), data.status, smb2_get_error(smb2) );
-            return data.status;
-        }
+	#else
 
-        if( !convert_stat( stbuf, &s ) )
-        {
-            LOG_ERR( "convert_stat(%s) failed\n", CODE_REF, full.c_str() );
-            return -EINVAL;
-        }
-    }
-    else return -ENOENT;
+		smb2_stat_64 s = {};
+		smb2_cb_data data;
+
+		#if ASYNC_LOCKING
+			{
+				std::unique_lock<std::mutex> lock(smb2_mutex);
+				smb2_stat_async(
+					smb2,
+					full.c_str(),
+					&s,
+					[](auto smb2, auto status, auto command_data, auto cb_data)
+					{
+						auto data = (smb2_cb_data*)cb_data;
+						data->finished = 1;
+						data->status = status;
+					},
+					&data);
+			}
+
+			auto result = wait_loop(data);
+			if (result < 0)
+				return result;
+		#else
+			{
+				std::unique_lock<std::mutex> lock(smb2_mutex);
+				data.status = smb2_stat( smb2, full.c_str(), &s );
+			}
+		#endif
+
+		if( -EACCES == data.status )
+		{
+			// For entries without permissions we create an empty stat record rather than ENOENT
+			stbuf->st_mode = SMB_FILE;
+			stbuf->st_uid = user_id;
+			stbuf->st_gid = group_id;
+			LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), data.status, smb2_get_error(smb2) );
+			return 0;
+		}
+		else if( data.status )
+		{
+			LOG_ERR( "smb2_stat(%s) failed: %i, %s", full.c_str(), data.status, smb2_get_error(smb2) );
+			return data.status;
+		}
+
+		if( !convert_stat( stbuf, &s ) )
+		{
+			LOG_ERR( "convert_stat(%s) failed\n", CODE_REF, full.c_str() );
+			return -EINVAL;
+		}
+	
+	#endif
 
     return 0;
 }
@@ -388,6 +534,10 @@ static int wrapper_readdir( const char *path,
                 , none
                 #endif
                 );
+
+		#if CACHED_ATTR
+		add_cache(full, ent);
+		#endif
 
         if (ent->st.smb2_type == SMB2_TYPE_LINK)
         {
