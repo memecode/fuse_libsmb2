@@ -19,6 +19,7 @@
 #include <sstream>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 #ifdef HAIKU
 #include <fuse/fuse.h>
@@ -57,12 +58,6 @@ enum TFnType
 int fnCounts[F_Max] = {};
 extern void fnDoStats();
 #endif
-
-int wrapper_readdir( const char *path, void *buf, fuse_fill_dir_t filler, fuse_off_t offset, struct fuse_file_info *fi
-                    #ifndef HAIKU
-                    , enum fuse_readdir_flags flags 
-                    #endif
-                    );
 
 /*
  * Command line options
@@ -136,6 +131,16 @@ static const struct fuse_opt option_spec[] = {
     OPTION("--help", show_help),
     FUSE_OPT_END
 };
+
+int wrapper_readdir(const char *path,
+                    void *buf,
+                    fuse_fill_dir_t filler,
+                    fuse_off_t offset,
+                    struct fuse_file_info *fi
+                    #ifndef HAIKU
+                    , enum fuse_readdir_flags flags 
+                    #endif
+                    );
 
 static std::string full_path(const char *path)
 {
@@ -486,15 +491,15 @@ static int wrapper_getattr( const char *path,
     return 0;
 }
 
-static int wrapper_readdir( const char *path,
-                            void *buf,
-                            fuse_fill_dir_t filler,
-                            fuse_off_t offset,
-                            struct fuse_file_info *fi
-                            #ifndef HAIKU
-                            , enum fuse_readdir_flags flags 
-                            #endif
-                            )
+int wrapper_readdir(const char *path,
+                    void *buf,
+                    fuse_fill_dir_t filler,
+                    fuse_off_t offset,
+                    struct fuse_file_info *fi
+                    #ifndef HAIKU
+                    , enum fuse_readdir_flags flags 
+                    #endif
+                    )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
     #if DEBUG_STATS
