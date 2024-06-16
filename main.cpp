@@ -295,7 +295,7 @@ smb2entry *get_cache(std::string &path)
 
 static bool convert_stat(fuse_stat *out, smb2_stat_64 *in)
 {
-    out->st_size = (off_t)in->smb2_size;
+    out->st_size = in->smb2_size;
     out->st_mtim.tv_sec = (time_t)in->smb2_mtime;
     out->st_atim.tv_sec = (time_t)in->smb2_atime;
     out->st_ctim.tv_sec = (time_t)in->smb2_ctime;
@@ -607,7 +607,8 @@ int wrapper_readdir(const char *path,
     
 	}
 
-	LOG_INFO("readdir:path=%s entries=%i time=%i", path, entries, (int)(getClock()-startTs));
+	if (getClock() - startTs > 100)
+		LOG_INFO("readdir:path=%s entries=%i time=%i", path, entries, (int)(getClock()-startTs));
     return 0;
 }
 
@@ -646,7 +647,6 @@ static int wrapper_read( const char *path,
                          fuse_off_t offset,
                          struct fuse_file_info *fi )
 {
-    std::unique_lock<std::mutex> lock(smb2_mutex);
     #if DEBUG_STATS
     fnCounts[F_read]++;
     fnDoStats();
@@ -665,13 +665,48 @@ static int wrapper_read( const char *path,
         return -EINVAL;
     }
 
-    if( offset != smb2_lseek( smb2, fh, offset, SEEK_SET, NULL ) )
-    {
-        LOG_ERR( "smb2_lseek failed: %s", smb2_get_error(smb2) );
-        return -EFAULT;
-    }
+	#if ASYNC_LOCKING
 
-    return smb2_read( smb2, fh, (uint8_t*) buf, (uint32_t) size );
+		smb2_cb_data data;
+		{
+		    std::unique_lock<std::mutex> lock(smb2_mutex);
+			int result = smb2_pread_async(	smb2,
+											fh,
+											(uint8_t*) buf,
+											size,
+											offset, 
+											[](auto smb2, auto status, auto command_data, auto cb_data)
+											{
+												auto data = (smb2_cb_data*)cb_data;
+												data->finished = true;
+												data->status = status;
+											},
+											&data);
+			if (result < 0)
+			{
+				LOG_ERR("smb2_pread_async failed: %i\n", result);
+				return result;
+			}
+		}
+
+		auto result = wait_loop(data);
+		if (result < 0)
+			return result;
+
+		return data.status;
+
+	#else
+
+	    std::unique_lock<std::mutex> lock(smb2_mutex);
+		if( offset != smb2_lseek( smb2, fh, offset, SEEK_SET, NULL ) )
+		{
+			LOG_ERR( "smb2_lseek failed: %s", smb2_get_error(smb2) );
+			return -EFAULT;
+		}
+
+		return smb2_read( smb2, fh, (uint8_t*) buf, (uint32_t) size );
+
+	#endif
 }
 
 static int wrapper_release( const char *path, struct fuse_file_info *fi )
