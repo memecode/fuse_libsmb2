@@ -1,13 +1,48 @@
         FUSE to libsmb2 bridge
         ----------------------
 
-This code is the bare minimum to access a read-only SMB share via a fuse mount.
+This code allows access to read-only SMB shares via a fuse mount.
 It should work under:
 
-Linux   - using libfuse: https://github.com/libfuse/libfuse
-Windows - using winfsp:  https://github.com/winfsp/winfsp
+Linux   - using libfuse:    https://github.com/libfuse/libfuse
+Windows - using winfsp:     https://github.com/winfsp/winfsp
+Haiku   - using userlandfs: https://github.com/haiku/haiku/tree/master/src/add-ons/kernel/file_systems/userlandfs
 
 Once built, you should be able to mount a folder using the syntax:
 
     fuse_libsmb2 -f --uri=smb://[user[:password]@]hostname/share /some/local/mountpoint
 
+The code original started with all the syncronous calls to libsmb2. But gradually I'm 
+migrating it to the async versions of those calls so that the global libsmb2 lock is
+held during the waiting for response period.
+
+Also the CACHED_ATTR define switches on caching of readdir entries such that the getattr
+doesn't need to do a round trip to the server. This is important for large folders because
+the number of getattr calls can be in the 1000's and if you can only process 50/s it 
+basically hangs for a long time just doing getattr calls.
+
+There is a general plan to implement write support. But it'll take time.
+
+Linux
+-----
+Install fuse v3:
+    sudo apt-get install fuse3
+
+Windows
+-------
+Install WinFsp from here:
+    https://winfsp.dev/rel
+I'm not 100% sure of the best flags to return from getattr. The current values for st_mode
+are a combination of the _S_IFREG style flags and various bits that aren't documented. YMMV.
+
+Haiku
+-----
+The Haiku support that uses userlandfs is via the FUSE v2.x API. Some methods have less 
+parameters. All the other OSs support the FUSE v3.x API. To install userlandfs:
+    pkgman install userland_fs
+
+MacOSX
+------
+I guess support is entirely possible... but I haven't tried it yet. I would expect that
+MacFUSE would be the logical way forward:
+    https://osxfuse.github.io/
