@@ -87,6 +87,8 @@ static struct options {
     #define SMB_DIR_READ		_S_IREAD |0xff // 0555
     #define SMB_DIR_WRITE       _S_IWRITE|0xff // 0200
 
+    #define strcasecmp          stricmp
+
 #else
     
     #define DIR_CHAR            '/'
@@ -435,11 +437,6 @@ static int wrapper_getattr( const char *path,
 			ent = get_cache(full);
 			if (!ent)
 				return -ENOENT;
-		}
-
-		if (!stricmp(path, "/dcim/camera/20200327_114239.jpg"))
-		{
-			int asd=0;
 		}
 
 		if( !convert_stat( stbuf, &ent->e.st ) )
