@@ -12,8 +12,10 @@ Once built, you should be able to mount a folder using the syntax:
 
     fuse_libsmb2 -f --uri=smb://[user[:password]@]hostname/share /some/local/mountpoint
 
+The `-f` flag is to run in the foreground. Usful for debugging. Omit to run in the background.
+
 The code original started with all the syncronous calls to libsmb2. But gradually I'm 
-migrating it to the async versions of those calls so that the global libsmb2 lock is
+migrating it to the async versions of those calls so that the global libsmb2 lock is not
 held during the waiting for response period.
 
 Also the CACHED_ATTR define switches on caching of readdir entries such that the getattr
@@ -26,12 +28,15 @@ There is a general plan to implement write support. But it'll take time.
 Linux
 -----
 Install fuse v3:
+
     sudo apt-get install fuse3
 
 Windows
 -------
 Install WinFsp from here:
+
     https://winfsp.dev/rel
+
 I'm not 100% sure of the best flags to return from getattr. The current values for st_mode
 are a combination of the _S_IFREG style flags and various bits that aren't documented. YMMV.
 
@@ -39,7 +44,16 @@ Haiku
 -----
 The Haiku support that uses userlandfs is via the FUSE v2.x API. Some methods have less 
 parameters. All the other OSs support the FUSE v3.x API. To install userlandfs:
+
     pkgman install userland_fs
+
+Under Haiku the binary is a library not an executable, and you have to install a symlink
+in ~/config/non-packaged/add-ons/userlandfs/fuse_libsmb2 to point at the built lib.
+Then you can mount via this command:
+
+    mount -t userlandfs -o 'fuse_libsmb2 --uri=smb://myuser:mypass@host/share' /local/mount/path
+
+You can't run fuse_libsmb2 directly like the other OS's.
 
 MacOSX
 ------
