@@ -482,8 +482,7 @@ int wrapper_readdir(const char *path,
 #define O_ACCMODE (O_RDWR|O_WRONLY|O_RDONLY)
 #endif /* !O_ACCMODE */
 
-static int wrapper_open( const char *path,
-                         struct fuse_file_info *fi)
+int wrapper_open( const char *path, struct fuse_file_info *fi)
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
     DEBUG_DO_STATS(F_open);
@@ -504,7 +503,7 @@ static int wrapper_open( const char *path,
     return 0;
 }
 
-static int wrapper_read( const char *path,
+int wrapper_read( const char *path,
                          char *buf,
                          size_t size,
                          fuse_off_t offset,
@@ -569,7 +568,7 @@ static int wrapper_read( const char *path,
 	#endif
 }
 
-static int wrapper_release( const char *path, struct fuse_file_info *fi )
+int wrapper_release( const char *path, struct fuse_file_info *fi )
 {
     std::unique_lock<std::mutex> lock(smb2_mutex);
     DEBUG_DO_STATS(F_release);
@@ -597,6 +596,10 @@ static const struct fuse_operations smb2_ops =
 {	
     .getattr	= wrapper_getattr,
 	.mkdir		= wrapper_mkdir,
+	.unlink     = wrapper_unlink,
+	.rmdir		= wrapper_rmdir,
+	.rename		= wrapper_rename,
+	.truncate	= wrapper_truncate,
     .open		= wrapper_open,
     .read		= wrapper_read,
     .release    = wrapper_release,
@@ -618,6 +621,26 @@ void fnDoStats(TFnType type)
             fnCounts[F_getattr], fnCounts[F_open], fnCounts[F_read], fnCounts[F_release], fnCounts[F_readdir]);
         memset(fnCounts, 0, sizeof(fnCounts));
     }
+}
+
+const char *fnTypeToString(TFnType type)
+{
+	switch (type)
+	{
+		case F_getattr: return "getattr";
+		case F_open:    return "open";
+		case F_read:    return "read";
+		case F_write:	return "write";
+		case F_release: return "release";
+		case F_readdir: return "readdir";
+		case F_init:    return "init";
+		case F_mkdir:   return "mkdir";
+		case F_rmdir:   return "rmdir";
+		case F_unlink:  return "unlink";
+		case F_rename:  return "rename";
+		case F_truncate: return "truncate";
+	}
+    return NULL;
 }
 #endif
 

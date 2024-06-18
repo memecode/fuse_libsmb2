@@ -41,19 +41,25 @@ static std::string code_ref( const char *file, int line, const char *func );
 #define LOG_ERR(...)	log_printf("ERR", __FILE__, __LINE__, __func__, __VA_ARGS__)
 void log_printf(const char *type, const char *file, int line, const char *func, ...);
 
-#if DEBUG_STATS
 enum TFnType
 {
     F_getattr,
     F_open,
     F_read,
+    F_write,
     F_release,
     F_readdir,
     F_init,
 	F_mkdir,
-
-    F_Max
+	F_rmdir,
+	F_unlink,
+	F_rename,
+	F_truncate,
+	
+	F_Max
 };
+extern const char *fnTypeToString(TFnType type);
+#if DEBUG_STATS
 #define DEBUG_DO_STATS(type) fnDoStats(type)
 extern void fnDoStats(TFnType type);
 #else
@@ -157,5 +163,27 @@ extern std::unordered_map<std::string, TDirVec> entryMap;
 
 // Main functionality
 extern int wait_loop(smb2_cb_data &data);
-extern int wrapper_mkdir(const char *path, fuse_mode_t mode);
 extern void generic_cb(struct smb2_context *smb2, int status, void *command_data, void *cb_data);
+
+// Read operations
+extern int wrapper_getattr(const char *path, fuse_stat *stbuf
+                    #ifndef HAIKU
+                    , struct fuse_file_info *fi
+                    #endif
+                    );
+extern int wrapper_readdir(const char *path, void *buf, fuse_fill_dir_t filler, fuse_off_t offset, struct fuse_file_info *fi
+                    #ifndef HAIKU
+                    , enum fuse_readdir_flags flags 
+                    #endif
+                    );
+extern int wrapper_open(const char *path, struct fuse_file_info *fi);
+extern int wrapper_read(const char *path, char *buf, size_t size, fuse_off_t offset, struct fuse_file_info *fi);
+extern int wrapper_release(const char *path, struct fuse_file_info *fi);
+
+// Write operations
+extern int wrapper_mkdir(const char *path, fuse_mode_t mode);
+extern int wrapper_rmdir(const char *path);
+extern int wrapper_unlink(const char *path);
+extern int wrapper_rename(const char *oldpath, const char *newpath, unsigned int flags);
+extern int wrapper_truncate(const char *path, fuse_off_t size, struct fuse3_file_info *fi);
+extern int wrapper_write(const char *path, const char *buf, size_t size, fuse_off_t off, struct fuse3_file_info *fi);
