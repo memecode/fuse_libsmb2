@@ -21,7 +21,10 @@ else()
     message(WARNING "libsmb2 is not in '${LIBSMB2_DIR}'")
 endif()
 
-add_executable(fuse_libsmb2 main.cpp)
+add_executable(fuse_libsmb2
+	main.cpp
+	write.cpp
+	fuse_libsmb2.h)
 if(HAIKU)
     set(FUSE_LIB userlandfs_fuse)
     target_include_directories(fuse_libsmb2
