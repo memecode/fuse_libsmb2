@@ -40,16 +40,6 @@ clock_t getClock()
     return clock() / (CLOCKS_PER_SEC / 1000);
 }
 
-int wrapper_readdir(const char *path,
-                    void *buf,
-                    fuse_fill_dir_t filler,
-                    fuse_off_t offset,
-                    struct fuse_file_info *fi
-                    #ifndef HAIKU
-                    , enum fuse_readdir_flags flags 
-                    #endif
-                    );
-
 std::string full_path(const char *path)
 {
     std::string p = smb2_path + path;
@@ -524,48 +514,33 @@ int wrapper_read( const char *path,
         return -EINVAL;
     }
 
-	#if ASYNC_LOCKING
-
-		smb2_cb_data data;
-		{
-		    std::unique_lock<std::mutex> lock(smb2_mutex);
-			int result = smb2_pread_async(	smb2,
-											fh,
-											(uint8_t*) buf,
-											size,
-											offset, 
-											[](auto smb2, auto status, auto command_data, auto cb_data)
-											{
-												auto data = (smb2_cb_data*)cb_data;
-												data->finished = true;
-												data->status = status;
-											},
-											&data);
-			if (result < 0)
-			{
-				LOG_ERR("smb2_pread_async failed: %i\n", result);
-				return result;
-			}
-		}
-
-		auto result = wait_loop(data);
+	smb2_cb_data data;
+	{
+		std::unique_lock<std::mutex> lock(smb2_mutex);
+		int result = smb2_pread_async(	smb2,
+										fh,
+										(uint8_t*) buf,
+										size,
+										offset, 
+										[](auto smb2, auto status, auto command_data, auto cb_data)
+										{
+											auto data = (smb2_cb_data*)cb_data;
+											data->finished = true;
+											data->status = status;
+										},
+										&data);
 		if (result < 0)
-			return result;
-
-		return data.status;
-
-	#else
-
-	    std::unique_lock<std::mutex> lock(smb2_mutex);
-		if( offset != smb2_lseek( smb2, fh, offset, SEEK_SET, NULL ) )
 		{
-			LOG_ERR( "smb2_lseek failed: %s", smb2_get_error(smb2) );
-			return -EFAULT;
+			LOG_ERR("smb2_pread_async failed: %i\n", result);
+			return result;
 		}
+	}
 
-		return smb2_read( smb2, fh, (uint8_t*) buf, (uint32_t) size );
+	auto result = wait_loop(data);
+	if (result < 0)
+		return result;
 
-	#endif
+	return data.status;
 }
 
 int wrapper_release( const char *path, struct fuse_file_info *fi )
@@ -617,8 +592,9 @@ void fnDoStats(TFnType type)
     if (now - ts >= 1000)
     {
         ts = now;
-        printf("stats: attr=%i, open=%i, read=%i, rel=%i, readdir=%i\n",
-            fnCounts[F_getattr], fnCounts[F_open], fnCounts[F_read], fnCounts[F_release], fnCounts[F_readdir]);
+        printf("stats: attr=%i, open=%i, read=%i, rel=%i, dir=%i, mk=%i, rm=%i, un=%i, rename=%i, trun=%i\n",
+            fnCounts[F_getattr], fnCounts[F_open], fnCounts[F_read], fnCounts[F_release], fnCounts[F_readdir],
+			fnCounts[F_mkdir], fnCounts[F_rmdir], fnCounts[F_unlink], fnCounts[F_rename], fnCounts[F_truncate]);
         memset(fnCounts, 0, sizeof(fnCounts));
     }
 }
