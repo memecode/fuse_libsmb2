@@ -23,7 +23,12 @@ doesn't need to do a round trip to the server. This is important for large folde
 the number of getattr calls can be in the 1000's and if you can only process 50/s it 
 basically hangs for a long time just doing getattr calls.
 
-There is a general plan to implement write support. But it'll take time.
+In terms of write support, there is now a range of functions for creating and removing folders,
+writing or truncating files and deleting files. It's partially tested. Also the caching mostly
+doesn't know about them. So it's likely that the cache will get out of date and return bad
+info once the underlying file system starts changing. At some point some timeouts should be
+added to requery the share for the latest info and update the cache. rmdir should also remove
+the entry from the cache.
 
 Linux
 -----
