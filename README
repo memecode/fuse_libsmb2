@@ -1,7 +1,7 @@
         FUSE to libsmb2 bridge
         ----------------------
 
-This code allows access to read-only SMB shares via a fuse mount.
+This code allows access to SMB shares via a fuse mount.
 It should work under:
 
 Linux   - using libfuse:    https://github.com/libfuse/libfuse
@@ -12,11 +12,13 @@ Once built, you should be able to mount a folder using the syntax:
 
     fuse_libsmb2 -f --uri=smb://[user[:password]@]hostname/share /some/local/mountpoint
 
-The `-f` flag is to run in the foreground. Usful for debugging. Omit to run in the background.
+The '-f' flag is to run in the foreground. Useful for debugging. Omit to run in the background.
 
-The code original started with all the syncronous calls to libsmb2. But gradually I'm 
+The code original started with all the synchronous calls to libsmb2. But gradually I'm 
 migrating it to the async versions of those calls so that the global libsmb2 lock is not
-held during the waiting for response period.
+held during the waiting for response period. All libsmb2 functions are not thread safe and
+the global lock needs to be held when calling them. Fuse will call the wrapper functions
+from different threads.
 
 Also the CACHED_ATTR define switches on caching of readdir entries such that the getattr
 doesn't need to do a round trip to the server. This is important for large folders because

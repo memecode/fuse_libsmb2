@@ -32,10 +32,11 @@
 #define CACHED_ATTR		1
 #define ASYNC_LOCKING	1
 #define DEBUG_STATS		1
+#define NOT_IMPL		-ENOSYS
 #define CODE_REF		code_ref(__FILE__, __LINE__, __func__).c_str()
 static std::string code_ref( const char *file, int line, const char *func );
 
-#define LOG_DEBUG(...)	// log_printf("DBG", __FILE__, __LINE__, __func__, __VA_ARGS__)
+#define LOG_DEBUG(...)	log_printf("DBG", __FILE__, __LINE__, __func__, __VA_ARGS__)
 #define LOG_INFO(...)	log_printf("INF", __FILE__, __LINE__, __func__, __VA_ARGS__)
 #define LOG_WARN(...)	log_printf("WRN", __FILE__, __LINE__, __func__, __VA_ARGS__)
 #define LOG_ERR(...)	log_printf("ERR", __FILE__, __LINE__, __func__, __VA_ARGS__)

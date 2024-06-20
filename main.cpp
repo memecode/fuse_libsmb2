@@ -169,7 +169,7 @@ static bool convert_stat(fuse_stat *out, smb2_stat_64 *in)
     #if 0
     bool read_only = (in->smb2_attrib & SMB2_FILE_ATTRIBUTE_READONLY) != 0;
     #else
-    bool read_only = true;
+    bool read_only = false;
     #endif
 
     switch (in->smb2_type)
@@ -265,6 +265,7 @@ int wrapper_getattr(const char *path,
     }    
 	if( !path )
 	{
+		LOG_DEBUG("no path");
 		return -ENOENT;
 	}
 
@@ -298,7 +299,10 @@ int wrapper_getattr(const char *path,
 
 			ent = get_cache(full);
 			if (!ent)
+			{
+				LOG_DEBUG("no entry for '%s'", full.c_str());
 				return -ENOENT;
+			}
 		}
 
 		if( !convert_stat( stbuf, &ent->e.st ) )
@@ -306,6 +310,8 @@ int wrapper_getattr(const char *path,
 			LOG_ERR( "convert_stat(%s) failed\n", CODE_REF, full.c_str() );
 			return -EINVAL;
 		}
+
+		LOG_INFO("start for '%s' ok", full.c_str());
 
 	#else
 
@@ -477,18 +483,15 @@ int wrapper_open( const char *path, struct fuse_file_info *fi)
     std::unique_lock<std::mutex> lock(smb2_mutex);
     DEBUG_DO_STATS(F_open);
 
-    if ((fi->flags & O_ACCMODE) != O_RDONLY)
-        return -EACCES;
-
-    auto full = full_path( path );
+    auto full = full_path(path);
     auto fh = smb2_open(smb2, full.c_str(), fi->flags);
     if (!fh)
     {
-        LOG_ERR( "smb2_open failed path=%s err=%s", full.c_str(), smb2_get_error(smb2) );
+        LOG_ERR("smb2_open failed path=%s err=%s", full.c_str(), smb2_get_error(smb2));
         return -ENOENT;
     }
 
-    // LOG_DEBUG("full=%s fh=%p fi->flags=0x%x", full.c_str(), fh, fi->flags);
+    LOG_DEBUG("full=%s fh=%p fi->flags=0x%x", full.c_str(), fh, fi->flags);
     fi->fh = (uint64_t)fh;
     return 0;
 }
@@ -567,19 +570,214 @@ int wrapper_release( const char *path, struct fuse_file_info *fi )
     return 0;
 }
 
+int notimpl_readlink(const char *path, char *buf, size_t size)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_mknod(const char *path, fuse_mode_t mode, fuse_dev_t dev)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_symlink(const char *dstpath, const char *srcpath)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_link(const char *srcpath, const char *dstpath)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_chmod(const char *path, fuse_mode_t mode, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_chown(const char *path, fuse_uid_t uid, fuse_gid_t gid, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_statfs(const char *path, struct fuse_statvfs *stbuf)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_flush(const char *path, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_fsync(const char *path, int datasync, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_setxattr(const char *path, const char *name, const char *value, size_t size, int flags)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_getxattr(const char *path, const char *name, char *value, size_t size)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_listxattr(const char *path, char *namebuf, size_t size)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_removexattr(const char *path, const char *name)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_opendir(const char *path, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_releasedir(const char *path, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_fsyncdir(const char *path, int datasync, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+void notimpl_destroy(void *data)
+{
+	LOG_DEBUG("not impl");
+}
+
+int notimpl_access(const char *path, int mask)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_create(const char *path, fuse_mode_t mode, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_lock(const char *path, struct fuse3_file_info *fi, int cmd, struct fuse_flock *lock)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_utimens(const char *path, const struct fuse_timespec tv[2], struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_bmap(const char *path, size_t blocksize, uint64_t *idx)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_ioctl(const char *path, int cmd, void *arg, struct fuse3_file_info *fi, unsigned int flags, void *data)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_poll(const char *path, struct fuse3_file_info *fi, struct fuse3_pollhandle *ph, unsigned *reventsp)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_write_buf(const char *path, struct fuse3_bufvec *buf, fuse_off_t off, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_read_buf(const char *path, struct fuse3_bufvec **bufp, size_t size, fuse_off_t off, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_flock(const char *path, struct fuse3_file_info *, int op)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
+int notimpl_fallocate(const char *path, int mode, fuse_off_t off, fuse_off_t len, struct fuse3_file_info *fi)
+{
+	LOG_DEBUG("not impl");
+	return NOT_IMPL;
+}
+
 static const struct fuse_operations smb2_ops =
 {	
-    .getattr	= wrapper_getattr,
+	.getattr	= wrapper_getattr,
+		.readlink = notimpl_readlink,
+		.mknod	= notimpl_mknod,
 	.mkdir		= wrapper_mkdir,
 	.unlink     = wrapper_unlink,
 	.rmdir		= wrapper_rmdir,
+		.symlink = notimpl_symlink,
 	.rename		= wrapper_rename,
+		.link   = notimpl_link,
+		.chmod	= notimpl_chmod,
+		.chown	= notimpl_chown,
 	.truncate	= wrapper_truncate,
-    .open		= wrapper_open,
-    .read		= wrapper_read,
-    .release    = wrapper_release,
-    .readdir	= wrapper_readdir,
-    .init		= wrapper_init,
+	.open		= wrapper_open,
+	.read		= wrapper_read,
+		// .statfs	= notimpl_statfs,
+		.flush	= notimpl_flush,
+	.release    = wrapper_release,
+		.fsync	= notimpl_fsync,
+		.setxattr = notimpl_setxattr,
+		.getxattr = notimpl_getxattr,
+		.listxattr = notimpl_listxattr,
+		.removexattr = notimpl_removexattr,
+		// .opendir = notimpl_opendir,
+	.readdir	= wrapper_readdir,
+		// .releasedir = notimpl_releasedir,
+		.fsyncdir = notimpl_fsyncdir,
+	.init		= wrapper_init,
+		.destroy = notimpl_destroy,
+		.access = notimpl_access,
+		.create = notimpl_create,
+		.lock = notimpl_lock,
+		.utimens = notimpl_utimens,
+		.bmap = notimpl_bmap,
+		.ioctl = notimpl_ioctl,
+		.poll = notimpl_poll,
+		.write_buf = notimpl_write_buf,
+		.read_buf = notimpl_read_buf,
+		.flock = notimpl_flock,
+		.fallocate = notimpl_fallocate,
 };
 
 #if DEBUG_STATS
@@ -639,12 +837,17 @@ int main(int argc, char *argv[])
     WSAStartup(MAKEWORD(2, 2), &_data);
     #endif
 
-	#if 0 // checking stat mode flags...
+	#if 1 // checking stat mode flags...
 	struct _stat64 st;
-	auto res = _stat64("P:\\Photos", &st);
-	LOG_INFO("dir.flags=%x vs %x", st.st_mode, SMB_DIR | SMB_DIR_READ);
+	auto res = _stat64("P:\\readTest", &st);
+	printf("readTest dir.flags=%x vs %x\n", st.st_mode, SMB_DIR | SMB_DIR_READ);
+
+	res = _stat64("P:\\writeTest", &st);
+	printf("writeTest dir.flags=%x vs %x\n", st.st_mode, SMB_DIR | SMB_DIR_READ);
+
 	res = _stat64("P:\\Photos\\aboveallelse.jpg", &st);
 	LOG_INFO("file.flags=%x vs %x", st.st_mode, SMB_FILE | SMB_FILE_READ);
+
 	#endif
 
     /* Set defaults -- we have to use strdup so that
