@@ -63,7 +63,7 @@ int wrapper_rename(const char *oldpath, const char *newpath, unsigned int flags)
 						});
 }
 
-int wrapper_truncate(const char *path, fuse_off_t size, struct fuse3_file_info *fi)
+int wrapper_truncate(const char *path, fuse_off_t size, struct fuse_file_info *fi)
 {
     return fn_template(	F_truncate,
 						[full=full_path(path), size](auto data)
@@ -72,7 +72,7 @@ int wrapper_truncate(const char *path, fuse_off_t size, struct fuse3_file_info *
 						});
 }
 
-int wrapper_write(const char *path, const char *buf, size_t size, fuse_off_t offset, struct fuse3_file_info *fi)
+int wrapper_write(const char *path, const char *buf, size_t size, fuse_off_t offset, struct fuse_file_info *fi)
 {
     DEBUG_DO_STATS(F_write);
     

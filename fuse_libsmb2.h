@@ -108,6 +108,12 @@ extern void fnDoStats(TFnType type);
 
     typedef struct stat fuse_stat;
     typedef off_t fuse_off_t;
+    typedef mode_t fuse_mode_t;
+    typedef dev_t fuse_dev_t;
+    typedef uid_t fuse_uid_t;
+    typedef gid_t fuse_gid_t;
+    typedef flock fuse_flock;
+    typedef timespec fuse_timespec;
 
 #endif
 
@@ -186,5 +192,5 @@ extern int wrapper_mkdir(const char *path, fuse_mode_t mode);
 extern int wrapper_rmdir(const char *path);
 extern int wrapper_unlink(const char *path);
 extern int wrapper_rename(const char *oldpath, const char *newpath, unsigned int flags);
-extern int wrapper_truncate(const char *path, fuse_off_t size, struct fuse3_file_info *fi);
-extern int wrapper_write(const char *path, const char *buf, size_t size, fuse_off_t off, struct fuse3_file_info *fi);
+extern int wrapper_truncate(const char *path, fuse_off_t size, struct fuse_file_info *fi);
+extern int wrapper_write(const char *path, const char *buf, size_t size, fuse_off_t off, struct fuse_file_info *fi);

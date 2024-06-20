@@ -594,13 +594,13 @@ int notimpl_link(const char *srcpath, const char *dstpath)
 	return NOT_IMPL;
 }
 
-int notimpl_chmod(const char *path, fuse_mode_t mode, struct fuse3_file_info *fi)
+int notimpl_chmod(const char *path, fuse_mode_t mode, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_chown(const char *path, fuse_uid_t uid, fuse_gid_t gid, struct fuse3_file_info *fi)
+int notimpl_chown(const char *path, fuse_uid_t uid, fuse_gid_t gid, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -612,13 +612,13 @@ int notimpl_statfs(const char *path, struct fuse_statvfs *stbuf)
 	return NOT_IMPL;
 }
 
-int notimpl_flush(const char *path, struct fuse3_file_info *fi)
+int notimpl_flush(const char *path, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_fsync(const char *path, int datasync, struct fuse3_file_info *fi)
+int notimpl_fsync(const char *path, int datasync, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -648,19 +648,19 @@ int notimpl_removexattr(const char *path, const char *name)
 	return NOT_IMPL;
 }
 
-int notimpl_opendir(const char *path, struct fuse3_file_info *fi)
+int notimpl_opendir(const char *path, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_releasedir(const char *path, struct fuse3_file_info *fi)
+int notimpl_releasedir(const char *path, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_fsyncdir(const char *path, int datasync, struct fuse3_file_info *fi)
+int notimpl_fsyncdir(const char *path, int datasync, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -677,19 +677,19 @@ int notimpl_access(const char *path, int mask)
 	return NOT_IMPL;
 }
 
-int notimpl_create(const char *path, fuse_mode_t mode, struct fuse3_file_info *fi)
+int notimpl_create(const char *path, fuse_mode_t mode, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_lock(const char *path, struct fuse3_file_info *fi, int cmd, struct fuse_flock *lock)
+int notimpl_lock(const char *path, struct fuse_file_info *fi, int cmd, fuse_flock *lock)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_utimens(const char *path, const struct fuse_timespec tv[2], struct fuse3_file_info *fi)
+int notimpl_utimens(const char *path, const fuse_timespec tv[2], struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -701,37 +701,37 @@ int notimpl_bmap(const char *path, size_t blocksize, uint64_t *idx)
 	return NOT_IMPL;
 }
 
-int notimpl_ioctl(const char *path, int cmd, void *arg, struct fuse3_file_info *fi, unsigned int flags, void *data)
+int notimpl_ioctl(const char *path, int cmd, void *arg, struct fuse_file_info *fi, unsigned int flags, void *data)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_poll(const char *path, struct fuse3_file_info *fi, struct fuse3_pollhandle *ph, unsigned *reventsp)
+int notimpl_poll(const char *path, struct fuse_file_info *fi, struct fuse_pollhandle *ph, unsigned *reventsp)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_write_buf(const char *path, struct fuse3_bufvec *buf, fuse_off_t off, struct fuse3_file_info *fi)
+int notimpl_write_buf(const char *path, struct fuse_bufvec *buf, fuse_off_t off, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_read_buf(const char *path, struct fuse3_bufvec **bufp, size_t size, fuse_off_t off, struct fuse3_file_info *fi)
+int notimpl_read_buf(const char *path, struct fuse_bufvec **bufp, size_t size, fuse_off_t off, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_flock(const char *path, struct fuse3_file_info *, int op)
+int notimpl_flock(const char *path, struct fuse_file_info *, int op)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
 }
 
-int notimpl_fallocate(const char *path, int mode, fuse_off_t off, fuse_off_t len, struct fuse3_file_info *fi)
+int notimpl_fallocate(const char *path, int mode, fuse_off_t off, fuse_off_t len, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -837,7 +837,7 @@ int main(int argc, char *argv[])
     WSAStartup(MAKEWORD(2, 2), &_data);
     #endif
 
-	#if 1 // checking stat mode flags...
+	#if 0 // checking stat mode flags...
 	struct _stat64 st;
 	auto res = _stat64("P:\\readTest", &st);
 	printf("readTest dir.flags=%x vs %x\n", st.st_mode, SMB_DIR | SMB_DIR_READ);
