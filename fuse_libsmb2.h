@@ -46,6 +46,7 @@ enum TFnType
 {
     F_getattr,
     F_open,
+	F_create,
     F_read,
     F_write,
     F_release,
@@ -186,6 +187,7 @@ extern int wrapper_readdir(const char *path, void *buf, fuse_fill_dir_t filler, 
 extern int wrapper_open(const char *path, struct fuse_file_info *fi);
 extern int wrapper_read(const char *path, char *buf, size_t size, fuse_off_t offset, struct fuse_file_info *fi);
 extern int wrapper_release(const char *path, struct fuse_file_info *fi);
+extern int wrapper_statfs(const char *path, struct fuse_statvfs *stbuf);
 
 // Write operations
 extern int wrapper_mkdir(const char *path, fuse_mode_t mode);

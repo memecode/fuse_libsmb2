@@ -311,7 +311,7 @@ int wrapper_getattr(const char *path,
 			return -EINVAL;
 		}
 
-		LOG_INFO("start for '%s' ok", full.c_str());
+		// LOG_INFO("start for '%s' ok", full.c_str());
 
 	#else
 
@@ -496,6 +496,31 @@ int wrapper_open( const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+int wrapper_create(const char *path, fuse_mode_t mode, struct fuse_file_info *fi)
+{
+    std::unique_lock<std::mutex> lock(smb2_mutex);
+    DEBUG_DO_STATS(F_create);
+
+    auto full = full_path(path);
+	auto parts = splitPath(full);
+
+    auto fh = smb2_open(smb2, full.c_str(), fi->flags | O_CREAT);
+    if (!fh)
+    {
+        LOG_ERR("smb2_open failed path=%s err=%s", full.c_str(), smb2_get_error(smb2));
+        return -ENOENT;
+    }
+
+	smb2dirent ent;
+	ent.name = parts.leaf.c_str();
+	auto result = smb2_stat(smb2, full.c_str(), &ent.st);
+	add_cache(parts.folder, &ent);
+
+    LOG_DEBUG("full=%s fh=%p fi->flags=0x%x", full.c_str(), fh, fi->flags);
+    fi->fh = (uint64_t)fh;
+    return 0;
+}
+
 int wrapper_read( const char *path,
                          char *buf,
                          size_t size,
@@ -525,12 +550,7 @@ int wrapper_read( const char *path,
 										(uint8_t*) buf,
 										size,
 										offset, 
-										[](auto smb2, auto status, auto command_data, auto cb_data)
-										{
-											auto data = (smb2_cb_data*)cb_data;
-											data->finished = true;
-											data->status = status;
-										},
+										generic_cb,
 										&data);
 		if (result < 0)
 		{
@@ -570,6 +590,40 @@ int wrapper_release( const char *path, struct fuse_file_info *fi )
     return 0;
 }
 
+int wrapper_statfs(const char *path, struct fuse_statvfs *stbuf)
+{
+	struct smb2_statvfs out;
+    auto full = full_path(path);
+	smb2_cb_data data;
+	{
+		std::unique_lock<std::mutex> lock(smb2_mutex);
+		int result = smb2_statvfs_async(smb2, full.c_str(), &out, generic_cb, &data);
+		if (result < 0)
+		{
+			LOG_ERR("smb2_statvfs_async failed: %i", result);
+			return result;
+		}
+	}
+
+	int result = wait_loop(data);
+	if (result < 0)
+		return result;
+
+    stbuf->f_bsize = out.f_bsize;
+    stbuf->f_frsize = out.f_frsize;
+    stbuf->f_blocks = out.f_blocks;
+    stbuf->f_bfree = out.f_bfree;
+    stbuf->f_bavail = out.f_bavail;
+    stbuf->f_files = out.f_files;
+    stbuf->f_ffree = out.f_ffree;
+    stbuf->f_favail = out.f_favail;
+    stbuf->f_fsid = out.f_fsid;
+    stbuf->f_flag = out.f_flag;
+    stbuf->f_namemax = out.f_namemax;
+
+	return 0;
+}
+
 int notimpl_readlink(const char *path, char *buf, size_t size)
 {
 	LOG_DEBUG("not impl");
@@ -601,12 +655,6 @@ int notimpl_chmod(const char *path, fuse_mode_t mode, struct fuse_file_info *fi)
 }
 
 int notimpl_chown(const char *path, fuse_uid_t uid, fuse_gid_t gid, struct fuse_file_info *fi)
-{
-	LOG_DEBUG("not impl");
-	return NOT_IMPL;
-}
-
-int notimpl_statfs(const char *path, struct fuse_statvfs *stbuf)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -672,12 +720,6 @@ void notimpl_destroy(void *data)
 }
 
 int notimpl_access(const char *path, int mask)
-{
-	LOG_DEBUG("not impl");
-	return NOT_IMPL;
-}
-
-int notimpl_create(const char *path, fuse_mode_t mode, struct fuse_file_info *fi)
 {
 	LOG_DEBUG("not impl");
 	return NOT_IMPL;
@@ -753,8 +795,8 @@ static const struct fuse_operations smb2_ops =
 	.truncate	= wrapper_truncate,
 	.open		= wrapper_open,
 	.read		= wrapper_read,
-		// .statfs	= notimpl_statfs,
-		.flush	= notimpl_flush,
+	.statfs		= wrapper_statfs,
+		// .flush	= notimpl_flush,
 	.release    = wrapper_release,
 		.fsync	= notimpl_fsync,
 		.setxattr = notimpl_setxattr,
@@ -768,7 +810,7 @@ static const struct fuse_operations smb2_ops =
 	.init		= wrapper_init,
 		.destroy = notimpl_destroy,
 		.access = notimpl_access,
-		.create = notimpl_create,
+	.create = wrapper_create,
 		.lock = notimpl_lock,
 		.utimens = notimpl_utimens,
 		.bmap = notimpl_bmap,
