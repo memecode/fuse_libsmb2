@@ -44,6 +44,9 @@ else()
 	set(FUSE_LIB "fuse3")
     target_include_directories(fuse_libsmb2 PUBLIC ${LIBSMB2_DIR}/include)
     target_compile_definitions(fuse_libsmb2 PRIVATE LINUX)
+    target_compile_definitions(fuse_libsmb2
+        PUBLIC
+            _FILE_OFFSET_BITS=64)
 endif()
 target_link_libraries(fuse_libsmb2
     PRIVATE
