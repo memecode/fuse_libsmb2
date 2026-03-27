@@ -590,7 +590,7 @@ int wrapper_release( const char *path, struct fuse_file_info *fi )
     return 0;
 }
 
-int wrapper_statfs(const char *path, struct fuse_statvfs *stbuf)
+int wrapper_statfs(const char *path, fuse_statvfs *stbuf)
 {
 	struct smb2_statvfs out;
     auto full = full_path(path);

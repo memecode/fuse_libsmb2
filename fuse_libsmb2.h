@@ -115,6 +115,8 @@ extern void fnDoStats(TFnType type);
     typedef gid_t fuse_gid_t;
     typedef flock fuse_flock;
     typedef timespec fuse_timespec;
+    #include <sys/statvfs.h>
+    typedef struct statvfs fuse_statvfs;
 
 #endif
 
@@ -187,7 +189,7 @@ extern int wrapper_readdir(const char *path, void *buf, fuse_fill_dir_t filler, 
 extern int wrapper_open(const char *path, struct fuse_file_info *fi);
 extern int wrapper_read(const char *path, char *buf, size_t size, fuse_off_t offset, struct fuse_file_info *fi);
 extern int wrapper_release(const char *path, struct fuse_file_info *fi);
-extern int wrapper_statfs(const char *path, struct fuse_statvfs *stbuf);
+extern int wrapper_statfs(const char *path, fuse_statvfs *stbuf);
 
 // Write operations
 extern int wrapper_mkdir(const char *path, fuse_mode_t mode);
